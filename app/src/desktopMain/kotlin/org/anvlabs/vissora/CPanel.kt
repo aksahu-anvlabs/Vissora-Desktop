@@ -68,6 +68,10 @@ import kotlin.math.roundToInt
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.ConcurrentHashMap
 
+import org.bytedeco.opencv.opencv_core.Mat
+import org.bytedeco.opencv.global.opencv_imgproc.*
+import org.bytedeco.opencv.opencv_videoio.VideoCapture
+
 import org.jetbrains.skia.ColorAlphaType
 import org.jetbrains.skia.ColorType
 import org.jetbrains.skia.ImageInfo
@@ -83,98 +87,36 @@ data class BoxData(
 )
 var boxDataState by mutableStateOf(BoxData(1f, 1f, emptyList(), emptyList()))
 
-var streamData by mutableStateOf("""
-[
-    {
-        "name": "cam 1",
-        "source": "../assets/videos/video3.mp4",
-        "loc": "D.A.V Public School",
-        "url": "rtsp://127.0.0.1:8554/camera",
-        "detection": false,
-        "nv": 0,
-        "nf": 0,
-        "fps": 60
-    },
-    {
-        "name": "cam 2",
-        "source": "../assets/videos/video2.mp4",
-        "loc": "D.A.V Public School",
-        "url": "rtsp://127.0.0.1:8554/camera",
-        "stream": true,
-        "detection": false,
-        "nv": 0,
-        "nf": 0,
-        "fps": 60
-    },
-    {
-        "name": "cam 3",
-        "source": "../assets/videos/video2.mp4",
-        "loc": "D.A.V Public School",
-        "url": "rtsp://127.0.0.1:8554/camera",
-        "stream": true,
-        "detection": false,
-        "nv": 0,
-        "nf": 0,
-        "fps": 60
-    },
-    {
-        "name": "cam 4",
-        "source": "../assets/videos/video2.mp4",
-        "loc": "D.A.V Public School",
-        "url": "rtsp://127.0.0.1:8554/camera",
-        "stream": true,
-        "detection": false,
-        "nv": 0,
-        "nf": 0,
-        "fps": 60
-    }
-]
-""")
-
-class VideoStream {
-    var handle: Long = 0L
-    companion object {
-        init {
-            val relativePaths = listOf("app/native/windows/libs", "native/windows/libs")
-            val baseDir = relativePaths.map { File(it).absoluteFile }.firstOrNull { it.exists() && File(it, "libmain.dll").exists() }?: File("app/native/windows/libs").absoluteFile
-            val dllOrder = listOf(
-                "avutil-61.dll",
-                "swresample-7.dll",
-                "swscale-10.dll",
-                "avcodec-63.dll",
-                "avformat-63.dll",
-                "avfilter-12.dll",
-                "avdevice-63.dll",
-                "ncnn.dll",
-                "libmain.dll"
-            )
-
-            for (dllName in dllOrder) {
-                val dllFile = File(baseDir, dllName)
-                if (dllFile.exists()) {
-                    try {
-                        System.load(dllFile.absolutePath)
-                    } catch (e: UnsatisfiedLinkError) {
-                        System.err.println("Failed to load ${dllFile.absolutePath}: ${e.message}")
-                        throw e
-                    }
-                }
-            }
-        }
+fun Mat.toImageBitmap(): ImageBitmap {
+    val rgbaMat = Mat()
+    if (this.channels() == 3) {
+        cvtColor(this, rgbaMat, COLOR_BGR2RGBA)
+    } else if (this.channels() == 1) {
+        cvtColor(this, rgbaMat, COLOR_GRAY2RGBA)
+    } else {
+        this.copyTo(rgbaMat)
     }
 
-    external fun openStream(name: String, url: String): Long
-    external fun decodeNextFrame(handle: Long, directBuffer: ByteBuffer): Int
-    external fun getWidth(handle: Long): Int
-    external fun getHeight(handle: Long): Int
-    external fun processYOLO(handle: Long, classes: IntArray)
-    external fun closeStream(handle: Long)
+    val width = rgbaMat.cols()
+    val height = rgbaMat.rows()
+    val totalBytes = (width * height * 4)
+    val byteData = ByteArray(totalBytes)
+
+    rgbaMat.data().get(byteData)
+    rgbaMat.release()
+
+    val skiaBitmap = Bitmap().apply {
+        allocPixels(ImageInfo(width, height, ColorType.RGBA_8888, ColorAlphaType.PREMUL))
+        installPixels(byteData)
+    }
+
+    return skiaBitmap.asComposeImageBitmap()
 }
 
 @Composable
-fun FfmpegPlayerView(stream: VideoStream = VideoStream(), cam: String, mediaUrl: String, modifier: Modifier = Modifier, play: Boolean = true) {
+fun streamPlayer(cam: String, mediaUrl: String, streamUrl: String, modifier: Modifier = Modifier, play: Boolean = true){
     var imageBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
-
+    var currentTime by remember { mutableStateOf(System.currentTimeMillis() / 1000) }
     LaunchedEffect(mediaUrl, play) {
         if (!play) {
             withContext(Dispatchers.Main) {
@@ -184,63 +126,72 @@ fun FfmpegPlayerView(stream: VideoStream = VideoStream(), cam: String, mediaUrl:
         }
         
         withContext(Dispatchers.IO) {
-            val handle = stream.openStream(cam, mediaUrl)
-            stream.handle = handle
-
-            if (handle == 0L) {
-                println("Failed to open FFmpeg stream for: $mediaUrl")
+            var capture = VideoCapture("../" + mediaUrl)
+            if (!capture.isOpened) {
+                println("Unable to open camera/video: $mediaUrl")
                 return@withContext
             }
 
-            val width = stream.getWidth(handle)
-            val height = stream.getHeight(handle)
-            
-            if (width <= 0 || height <= 0) {
-                println("Invalid video stream dimensions: ${width}x${height}")
-                stream.closeStream(handle)
-                return@withContext
+            val fps = capture.get(org.bytedeco.opencv.global.opencv_videoio.CAP_PROP_FPS).let {
+                if (it > 0.0) it else 30.0
             }
+            val frameDelayMs = (1000.0 / fps).toLong()
 
-            val rowBytes = width * 4 // RGBA stride
-            val capacity = rowBytes * height
-            val directBuffer = ByteBuffer.allocateDirect(capacity)
-
-            val imageInfo = ImageInfo(
-                width = width,
-                height = height,
-                colorType = ColorType.RGBA_8888,
-                alphaType = ColorAlphaType.UNPREMUL
-            )
-
+            val frame = Mat()
             try {
                 while (isActive) {
-                    val result = stream.decodeNextFrame(handle, directBuffer)
-                    if (result == 0) {
-                        val bytes = ByteArray(capacity)
-                        directBuffer.position(0)
-                        directBuffer.get(bytes)
-
-                        val bitmap = Bitmap().apply {
-                            allocPixels(imageInfo)
-                            installPixels(bytes)
-                            setImmutable()
-                        }
-                        val composeBitmap = bitmap.asComposeImageBitmap()
-
-                        // Safely post bitmap update to Main thread to prevent concurrent composition crashes
+                    if (capture.read(frame) && !frame.empty()) {
+                        val bitmap = frame.toImageBitmap()
                         withContext(Dispatchers.Main) {
-                            imageBitmap = composeBitmap
+                            // val now = System.currentTimeMillis() / 1000
+                            // if(now - currentTime > 3){
+                            //     currentTime = now
+                            //     val currentPositionMs = capture.get(
+                            //         org.bytedeco.opencv.global.opencv_videoio.CAP_PROP_POS_MSEC
+                            //     )
+                            //     val currentPositionSeconds = currentPositionMs / 1000.0
+                            //     val obj = JSONObject()
+                            //     obj.put("source", mediaUrl)
+                            //     obj.put("time", currentPositionSeconds)
+                            //     wsSession?.let{
+                            //         it.send(Frame.Text(obj.toString()))
+                            //     }
+                            // }
+                            imageBitmap = bitmap
                         }
+                        // Maintain proper playback speed
+                        delay(frameDelayMs)
                     } else {
-                        delay(5)
+                        // EOF reached: seek or reopen
+                        val seekSuccess = capture.set(
+                            org.bytedeco.opencv.global.opencv_videoio.CAP_PROP_POS_FRAMES,
+                            0.0
+                        )
+                        
+                        // If seeking is unsupported or fails to reset EOF, recreate the capture
+                        if (!seekSuccess || !capture.read(frame)) {
+                            capture.release()
+                            capture = VideoCapture(mediaUrl)
+                            if (!capture.isOpened) {
+                                println("Failed to reopen stream for loop: $mediaUrl")
+                                break
+                            }
+                        } else {
+                            // Successfully grabbed the first frame after seek
+                            val bitmap = frame.toImageBitmap()
+                            withContext(Dispatchers.Main) {
+                                imageBitmap = bitmap
+                            }
+                            delay(frameDelayMs)
+                        }
                     }
                 }
             } finally {
-                stream.closeStream(handle)
+                capture.release()
+                frame.release()
             }
         }
     }
-
     if (imageBitmap != null && play) {
         Image(
             bitmap = imageBitmap!!,
@@ -252,7 +203,7 @@ fun FfmpegPlayerView(stream: VideoStream = VideoStream(), cam: String, mediaUrl:
         Box(modifier = modifier.background(Color(0xff333333))){
             Column(modifier=Modifier.align(Alignment.Center), horizontalAlignment=Alignment.CenterHorizontally){
                 Text(text=cam, fontSize=16.sp, color=Color(0xffcccccc))
-                Text(text=mediaUrl, fontSize=12.sp, color=Color(0xff999999))
+                Text(text=streamUrl, fontSize=12.sp, color=Color(0xff999999))
                 if(play){
                     Spacer(modifier=Modifier.height(15.dp))
                     Text(text="Please wait...", color=Color.White)
@@ -261,6 +212,7 @@ fun FfmpegPlayerView(stream: VideoStream = VideoStream(), cam: String, mediaUrl:
         }
     }
 }
+
 
 fun indexOf(jsonArray: JSONArray, item: String): Int {
     for (i in 0 until jsonArray.length()) {
@@ -284,7 +236,7 @@ suspend fun startServer(onConnected: suspend (DefaultClientWebSocketSession) -> 
                         withContext(Dispatchers.IO) {
                             for(i in 0 until parsedData.length()){
                                 if(parsedData.getJSONObject(i).getString("name") == response.getString("n") && parsedData.getJSONObject(i).getBoolean("detection")){
-                                    print("received")
+                                    //print("received")
                                     parsedData.getJSONObject(i).put("nv", response.getInt("nv"))
                                     parsedData.getJSONObject(i).put("nf", response.getInt("nf"))
                                     break
@@ -306,7 +258,7 @@ suspend fun startServer(onConnected: suspend (DefaultClientWebSocketSession) -> 
 
 @Suppress("DEPRECATION")
 @Composable
-fun CPanelWindow() {
+fun CPanelWindow(rawData: String, onUpdate: (data: String) -> Unit) {
     var openNewStreamDialog by remember { mutableStateOf(false) }
     val frameMap = remember {
         mutableStateMapOf<String, ImageBitmap>()
@@ -323,6 +275,7 @@ fun CPanelWindow() {
             weight = FontWeight.Normal
         )
     )
+    var streamData by remember { mutableStateOf(rawData) }
     var pw by remember { mutableIntStateOf(0) }
     var ph by remember { mutableIntStateOf(0) }
     var np by remember { mutableStateOf(0) }
@@ -332,10 +285,9 @@ fun CPanelWindow() {
     var searchClass by remember { mutableStateOf("") }
     var fullscreen by remember { mutableStateOf(false) }
     var track by remember { mutableStateOf(false) }
-    var globalStream by remember { mutableStateOf(VideoStream()) }
-    val streams = remember { mutableListOf<VideoStream>() }
     var globalCam by remember { mutableStateOf("") }
     var globalURL by remember { mutableStateOf("") }
+    var globalStreamURL by remember { mutableStateOf("") }
     var globalPlay by remember { mutableStateOf(true) }
 
     // Parse streamData ONLY when it actually changes, not on every recomposition
@@ -346,7 +298,7 @@ fun CPanelWindow() {
         scope.launch {
             startServer { ctx -> 
                 wsSession = ctx
-                ctx.send(Frame.Text(streamData))
+                //ctx.send(Frame.Text(streamData))
             }
         }
     }
@@ -420,17 +372,15 @@ fun CPanelWindow() {
                                 )
                                 var play by remember { mutableStateOf(false) }
                                 var captured by remember { mutableStateOf(false) }
-                                val stream = remember { VideoStream() }
-                                streams.add(stream)
 
                                 Box(modifier=Modifier.fillMaxSize().onGloballyPositioned { coordinates ->
                                     pw = coordinates.size.width
                                     ph = coordinates.size.height
                                 }){
-                                    FfmpegPlayerView(
-                                        stream = stream,
+                                    streamPlayer(
                                         cam = jsonData.getString("name"),
-                                        mediaUrl = jsonData.getString("url"),
+                                        mediaUrl = jsonData.getString("source"),
+                                        streamUrl = jsonData.getString("url"),
                                         modifier = Modifier.fillMaxSize(),
                                         play = play
                                     )
@@ -493,6 +443,7 @@ fun CPanelWindow() {
                                                 play = !play 
                                                 parsedData.getJSONObject(index).put("detection", play)
                                                 streamData = parsedData.toString()
+                                                onUpdate(streamData)
                                                 scope.launch {
                                                     wsSession?.send(Frame.Text(streamData))
                                                 }
@@ -527,13 +478,14 @@ fun CPanelWindow() {
                                                 play = false
                                                 parsedData.getJSONObject(index).put("detection", play)
                                                 streamData = parsedData.toString()
+                                                onUpdate(streamData)
                                                 scope.launch {
                                                     wsSession?.send(Frame.Text(streamData))
                                                 }
                                                 fullscreen = !fullscreen
-                                                globalStream = stream
                                                 globalCam = jsonData.getString("name")
-                                                globalURL = jsonData.getString("url")
+                                                globalURL = jsonData.getString("source")
+                                                globalStreamURL = jsonData.getString("url")
                                                 globalPlay = true
                                             },
                                             colors = IconButtonDefaults.iconButtonColors(containerColor = Color.Transparent, contentColor = Color.White)
@@ -581,10 +533,10 @@ fun CPanelWindow() {
                         Row(
                             modifier = Modifier.fillMaxSize()
                         ) {
-                            FfmpegPlayerView(
-                                stream = globalStream,
+                            streamPlayer(
                                 cam = globalCam,
                                 mediaUrl = globalURL,
+                                streamUrl = globalStreamURL,
                                 modifier = Modifier.fillMaxSize(),
                                 play = globalPlay
                             )
@@ -745,9 +697,6 @@ fun CPanelWindow() {
                                             val folder = File("images")
                                             folder.listFiles()?.forEach { file ->
                                                 file.deleteRecursively()
-                                            }
-                                            streams.forEach { stream ->
-                                                stream.processYOLO(stream.handle, classes)
                                             }
                                             job = scope.launch {
                                                 repeat(10) {

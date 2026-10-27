@@ -293,7 +293,7 @@ fun Modifier.checkerboardBackground(tileSize: Dp = 10.dp, colorA: Color = Color.
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AccessWindow(){
+fun AccessWindow(streamData: String){
 	var VRNText by remember { mutableStateOf("") }
 	var AIPrompt by remember { mutableStateOf("") }
 	var filePath by remember { mutableStateOf("No file selected") }

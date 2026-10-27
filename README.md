@@ -1,35 +1,25 @@
 # Vissora
 
-## Run the Project
-
-### Requirements
-- Android Studio
-- Android SDK
-- JDK
-- An Android device or emulator
-
-### Build and Install
+### Build and Run
 
 Run the following commands from the `Software` directory.
 
 **Windows (PowerShell):**
 ```powershell
-.\gradlew.bat installDebug
+.\gradlew.bat run
 ```
 
 **Linux / macOS:**
 ```bash
-./gradlew installDebug
+./gradlew run
 ```
-
-Make sure an Android device is connected with USB debugging enabled or an emulator is running.
 
 ## Manage Cameras
 
 To add or remove cameras, edit the following source file:
 
 ```text
-androidMain/kotlin/.../cpanel.kt
+desktopMain/kotlin/.../cpanel.kt
 ```
 
 - **Add a camera:** Update the camera configuration or list in `cpanel.kt`.
@@ -38,10 +28,3 @@ androidMain/kotlin/.../cpanel.kt
 After making changes, rebuild and install the application using the appropriate Gradle command above.
 
 ! PLEASE CHECK AND MAKE SURE THE STREAM URL IS VALID AND REACHABLE BEFORE STARTING THE STREAM. MODIFY, ADD OR REMOVE STREAMS FROM THE CPanel.kt file inside androidMain
-
-## Server (Reverse Tracing)
-
-To run local server for Reverse Tracer for tracking multiple vechiles, faces across webcams launch the python websocket server (main.py) and the flask server (server.py) inside the Server directory.
-
-- **wss server:** python Server/main.py
-- **flask server:** python Server/server.py

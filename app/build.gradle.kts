@@ -45,6 +45,10 @@ kotlin {
                 implementation("io.coil-kt.coil3:coil-compose:3.6.3")
                 implementation("io.coil-kt.coil3:coil-network-okhttp:3.6.3")
                 implementation("net.java.dev.jna:jna-platform:5.14.0")
+                implementation("org.bytedeco:opencv:4.10.0-1.5.11")
+                implementation("org.bytedeco:opencv:4.10.0-1.5.11:windows-x86_64")
+                implementation("org.bytedeco:openblas:0.3.28-1.5.11")
+                implementation("org.bytedeco:openblas:0.3.28-1.5.11:windows-x86_64")
             }
         }
 
@@ -112,10 +116,6 @@ android {
 
     buildFeatures {
         compose = true
-    }
-
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.14"
     }
 
     compileOptions {

@@ -68,6 +68,54 @@ fun Brush.Companion.angledGradient(colors: List<Color>, angleInDegrees: Float, s
     return Brush.linearGradient(colors = colors, start = start, end = end)
 }
 
+var streamData by mutableStateOf("""
+[
+    {
+        "name": "cam 1",
+        "source": "../assets/videos/g7.mpeg",
+        "loc": "D.A.V Public School",
+        "url": "rtsp://127.0.0.1:8554/camera2",
+        "detection": false,
+        "nv": 0,
+        "nf": 0,
+        "fps": 60
+    },
+    {
+        "name": "cam 2",
+        "source": "../assets/videos/video3.mp4",
+        "loc": "D.A.V Public School",
+        "url": "rtsp://127.0.0.1:8554/camera",
+        "stream": true,
+        "detection": false,
+        "nv": 0,
+        "nf": 0,
+        "fps": 60
+    },
+    {
+        "name": "cam 3",
+        "source": "../assets/videos/video2.mp4",
+        "loc": "D.A.V Public School",
+        "url": "rtsp://127.0.0.1:8554/camera",
+        "stream": true,
+        "detection": false,
+        "nv": 0,
+        "nf": 0,
+        "fps": 60
+    },
+    {
+        "name": "cam 4",
+        "source": "../assets/videos/video4.mp4",
+        "loc": "D.A.V Public School",
+        "url": "rtsp://127.0.0.1:8554/camera",
+        "stream": true,
+        "detection": false,
+        "nv": 0,
+        "nf": 0,
+        "fps": 60
+    }
+]
+""")
+
 @Suppress("DEPRECATION")
 @Composable
 fun App(onExitApp: () -> Unit) {
@@ -89,6 +137,10 @@ fun App(onExitApp: () -> Unit) {
     var index by remember { mutableStateOf(2) }
     var btnData = listOf("CPanel", "Reverse Tracer", "Embeddings", "Maps", "Accounts", "Settings", "Close")
     val defaultPadding: PaddingValues = ButtonDefaults.ContentPadding
+
+    LaunchedEffect(Unit){
+
+    }
 
     MaterialTheme(
         colorScheme = darkColorScheme()
@@ -158,10 +210,12 @@ fun App(onExitApp: () -> Unit) {
             Spacer(modifier = Modifier.width(15.dp))
             Column(modifier = Modifier.weight(1f)) {
                 if(index == 0){
-                    CPanelWindow()
+                    CPanelWindow(streamData){x ->
+                        streamData = x
+                    }
                 }
                 else if(index == 1){
-                    AccessWindow()
+                    AccessWindow(streamData)
                 }
                 else if(index == 2){
                     EmbWindow()
