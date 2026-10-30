@@ -1,5 +1,20 @@
 # Vissora
 
+A Unified AI Based Vision Engine that tracks for unknown entities, vechiles, etc and store facial embeddings, ANPR Data, and many more. It provides features including cross-match, reverse vechile search, etc.
+
+# Screenshots
+
+<table>
+  <tr>
+    <td><img src="assets/Screenshot 2026-10-27 114043.png" width="400"></td>
+    <td><img src="assets/Screenshot 2026-10-27 114149.png" width="400"></td>
+  </tr>
+  <tr>
+    <td><img src="assets/Screenshot 2026-10-27 114156.png" width="400"></td>
+    <td><img src="assets/Screenshot 2026-10-27 114339.png" width="400"></td>
+  </tr>
+</table>
+
 ### Build and Run
 
 Run the following commands from the `Software` directory.
